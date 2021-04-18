@@ -139,7 +139,7 @@ class QueryLoop:
         for query in self._timed_queries:
             if query.interval:
                 call = PeriodicCall(self._run_query, query)
-                call.start(query.interval)
+                call.start(query.interval, now=True)
             else:
                 call = TimedCall(self._run_query, query)
                 call.start(self._loop_times_iter(query.schedule))
