@@ -200,7 +200,7 @@ class QueryLoop:
             self._increment_queries_count(db, query, "error")
             if error.fatal:
                 self._logger.debug(
-                    f'removing doomed query "{query.name}" ' f'for database "{dbname}"'
+                    f'removing failed query "{query.name}" ' f'for database "{dbname}"'
                 )
                 self._doomed_queries[query.name].add(dbname)
         else:

@@ -486,6 +486,7 @@ class TestDataBase:
             await db.close()
         assert caplog.messages == [
             'worker "DataBase-db": received action "_close"',
+            'worker "DataBase-db": shutting down',
             'disconnected from database "db"',
         ]
         assert not db.connected

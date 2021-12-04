@@ -6,7 +6,10 @@ from functools import partial
 from itertools import chain
 import logging
 import sys
-from threading import Thread
+from threading import (
+    current_thread,
+    Thread,
+)
 from time import perf_counter
 from traceback import format_tb
 from typing import (
@@ -273,17 +276,17 @@ class WorkerAction:
 class DataBaseConnection:
     """A connection to a database engine."""
 
-    _queue: asyncio.Queue
     _conn: Optional[Connection] = None
+    _worker: Optional[Thread] = None
 
     def __init__(
         self, dbname: str, engine: Engine, logger: logging.Logger = logging.getLogger()
     ):
+        self.dbname = dbname
         self.engine = engine
         self.logger = logger
-        self._queue = asyncio.Queue()
-        target = partial(self._run, asyncio.get_event_loop())
-        self._worker = Thread(target=target, name=f"DataBase-{dbname}")
+        self._loop = asyncio.get_event_loop()
+        self._queue: asyncio.Queue = asyncio.Queue()
 
     @property
     def connected(self) -> bool:
@@ -295,8 +298,7 @@ class DataBaseConnection:
         if self.connected:
             return
 
-        if not self._worker.is_alive():
-            self._worker.start()
+        self._create_worker()
         return await self._call_in_thread(self._connect)
 
     async def close(self):
@@ -320,6 +322,13 @@ class DataBaseConnection:
         )
         return query_results
 
+    def _create_worker(self):
+        """Create the worker thread."""
+        self._worker = Thread(
+            target=self._run, name=f"DataBase-{self.dbname}", daemon=True
+        )
+        self._worker.start()
+
     def _connect(self):
         self._conn = self.engine.connect()
 
@@ -333,36 +342,40 @@ class DataBaseConnection:
         self._conn.close()
         self._conn = None
 
-    def _run(self, loop):
+    def _run(self):
         """The worker thread function."""
-        self._debug(f"started with ID {self._worker.native_id}")
+
+        def debug(message: str):
+            self.logger.debug(f'worker "{current_thread().name}": {message}')
+
+        debug(f"started with ID {current_thread().native_id}")
         while True:
-            future = asyncio.run_coroutine_threadsafe(self._queue.get(), loop)
+            future = asyncio.run_coroutine_threadsafe(self._queue.get(), self._loop)
             try:
                 action = future.result()
-                self._debug(f'received action "{action}"')
+                debug(f'received action "{action}"')
             except futures.CancelledError:
-                self._debug("shutting down")
+                debug("shutting down")
                 return
 
             try:
                 result = action.func()
             except Exception as e:
-                loop.call_soon_threadsafe(action.set_exception, e)
+                self._loop.call_soon_threadsafe(action.set_exception, e)
             else:
-                loop.call_soon_threadsafe(action.set_result, result)
+                self._loop.call_soon_threadsafe(action.set_result, result)
             finally:
-                loop.call_soon_threadsafe(self._queue.task_done)
+                self._loop.call_soon_threadsafe(self._queue.task_done)
+                if self._conn is None:
+                    # the connection has been closed, exit the thread
+                    debug("shutting down")
+                    return
 
     async def _call_in_thread(self, func: Callable, *args, **kwargs):
         """Call a sync action in the worker thread."""
         call = WorkerAction(partial(func, *args, **kwargs))
         await self._queue.put(call)
         return await call.result()
-
-    def _debug(self, message: str):
-        """Write a debug message."""
-        self.logger.debug(f'worker "{self._worker.name}": {message}')
 
 
 class DataBase:
