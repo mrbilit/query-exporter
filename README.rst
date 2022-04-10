@@ -9,7 +9,7 @@ Export Prometheus metrics from SQL queries
 from database queries, at specified time intervals.
 
 It uses SQLAlchemy_ to connect to different database engines, including
-PostgreSQL, MySQL, Oracle and Microsoft SQL Server.
+Clickhouse, PostgreSQL, MySQL, Oracle and Microsoft SQL Server.
 
 Each query can be run on multiple databases, and update multiple metrics.
 
